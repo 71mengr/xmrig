@@ -154,6 +154,10 @@ bool xmrig::Job::setTarget(const char *target)
 
 size_t xmrig::Job::nonceOffset() const
 {
+    if (m_nonceOffset) {
+        return m_nonceOffset;
+    }
+
     switch (algorithm().family()) {
     case Algorithm::KAWPOW:
         return 32;
@@ -230,9 +234,11 @@ uint32_t xmrig::Job::getNumTransactions() const
 
 void xmrig::Job::copy(const Job &other)
 {
-    m_algorithm  = other.m_algorithm;
-    m_nicehash   = other.m_nicehash;
-    m_size       = other.m_size;
+    m_algorithm   = other.m_algorithm;
+    m_nicehash    = other.m_nicehash;
+    m_size        = other.m_size;
+    m_nonceOffset = other.m_nonceOffset;
+    m_nonceSize   = other.m_nonceSize;
     m_clientId   = other.m_clientId;
     m_id         = other.m_id;
     m_backend    = other.m_backend;
@@ -282,9 +288,11 @@ void xmrig::Job::copy(const Job &other)
 
 void xmrig::Job::move(Job &&other)
 {
-    m_algorithm  = other.m_algorithm;
-    m_nicehash   = other.m_nicehash;
-    m_size       = other.m_size;
+    m_algorithm   = other.m_algorithm;
+    m_nicehash    = other.m_nicehash;
+    m_size        = other.m_size;
+    m_nonceOffset = other.m_nonceOffset;
+    m_nonceSize   = other.m_nonceSize;
     m_clientId   = std::move(other.m_clientId);
     m_id         = std::move(other.m_id);
     m_backend    = other.m_backend;
@@ -299,6 +307,8 @@ void xmrig::Job::move(Job &&other)
     memcpy(m_blob, other.m_blob, sizeof(m_blob));
 
     other.m_size        = 0;
+    other.m_nonceOffset = 0;
+    other.m_nonceSize   = 0;
     other.m_diff        = 0;
     other.m_algorithm   = Algorithm::INVALID;
 

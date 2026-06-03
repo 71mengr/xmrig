@@ -19,9 +19,12 @@
 
 #include <cassert>
 #include <cinttypes>
+#include <cstdlib>
 #include <iterator>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 #include <utility>
 #include <sstream>
 
@@ -64,6 +67,60 @@ Storage<Client> Client::m_storage;
 
 } /* namespace xmrig */
 
+
+namespace {
+
+
+const char *skipHexPrefix(const char *hex)
+{
+    return (hex && hex[0] == '0' && (hex[1] == 'x' || hex[1] == 'X')) ? hex + 2 : hex;
+}
+
+
+bool setTkmTarget(xmrig::Job &job, const char *target)
+{
+    target = skipHexPrefix(target);
+
+    if (job.setTarget(target)) {
+        return true;
+    }
+
+    if (!target || strlen(target) < 16) {
+        return false;
+    }
+
+    std::string targetStr(target, 16);
+    const uint64_t target64 = strtoull(targetStr.c_str(), nullptr, 16);
+    if (target64 == 0) {
+        return false;
+    }
+
+    job.setDiff(xmrig::Job::toDiff(target64));
+
+    return true;
+}
+
+
+bool setTkmBlob(xmrig::Job &job, const char *blobData)
+{
+    blobData = skipHexPrefix(blobData);
+
+    if (job.setBlob(blobData)) {
+        return true;
+    }
+
+    if (!blobData || strlen(blobData) != 64) {
+        return false;
+    }
+
+    std::string blob(blobData);
+    blob.resize(76 * 2, '0');
+
+    return job.setBlob(blob.c_str());
+}
+
+
+} // namespace
 
 #ifdef APP_DEBUG
 static const char *states[] = {
@@ -415,6 +472,9 @@ bool xmrig::Client::parseJob(const rapidjson::Value &params, int *code)
 
     const char *algo = Json::getString(params, "algo");
     const char *blobData = Json::getString(params, "blob");
+    if (isTkm()) {
+        blobData = skipHexPrefix(blobData);
+    }
     if (algo) {
         job.setAlgorithm(algo);
     }
@@ -439,13 +499,14 @@ bool xmrig::Client::parseJob(const rapidjson::Value &params, int *code)
     else
 #   endif
     {
-        if (!job.setBlob(blobData)) {
+        if (!(isTkm() ? setTkmBlob(job, blobData) : job.setBlob(blobData))) {
             *code = 4;
             return false;
         }
     }
 
-    if (!job.setTarget(Json::getString(params, "target"))) {
+    const char *target = Json::getString(params, "target");
+    if (!(isTkm() ? setTkmTarget(job, target) : job.setTarget(target))) {
         *code = 5;
         return false;
     }
@@ -457,7 +518,12 @@ bool xmrig::Client::parseJob(const rapidjson::Value &params, int *code)
         return false;
     }
 
-    if (m_pool.mode() != Pool::MODE_SELF_SELECT && job.algorithm().family() == Algorithm::RANDOM_X && !job.setSeedHash(Json::getString(params, "seed_hash"))) {
+    const char *seedHash = Json::getString(params, "seed_hash");
+    if (isTkm()) {
+        seedHash = skipHexPrefix(seedHash);
+    }
+
+    if (m_pool.mode() != Pool::MODE_SELF_SELECT && job.algorithm().family() == Algorithm::RANDOM_X && !job.setSeedHash(seedHash)) {
         *code = 7;
         return false;
     }
@@ -686,12 +752,7 @@ bool xmrig::Client::parseTkmLogin(const rapidjson::Value &result, int *code)
 bool xmrig::Client::parseTkmGetWork(const rapidjson::Value &result)
 {
     auto hex = [](const rapidjson::Value &value) -> const char * {
-        if (!value.IsString()) {
-            return nullptr;
-        }
-
-        const char *s = value.GetString();
-        return (value.GetStringLength() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) ? s + 2 : s;
+        return value.IsString() ? skipHexPrefix(value.GetString()) : nullptr;
     };
 
     if (result.IsArray()) {
@@ -718,8 +779,22 @@ bool xmrig::Client::parseTkmGetWork(const rapidjson::Value &result)
             job.setAlgorithm(m_pool.coin().algorithm());
         }
 
-        if (!verifyAlgorithm(job.algorithm(), nullptr) || !job.setBlob(blobData) || !job.setTarget(target)) {
+        std::string tkmBlob;
+        if (job.algorithm().family() == Algorithm::RANDOM_X && strlen(blobData) == 64) {
+            tkmBlob.reserve(80);
+            tkmBlob.assign(blobData);
+            tkmBlob.append(16, '0');
+            blobData = tkmBlob.c_str();
+            job.setNonce(32, 8);
+        }
+
+                if (!verifyAlgorithm(job.algorithm(), nullptr) || !setTkmBlob(job, blobData)) {
             LOG_ERR("%s " RED("eth_getWork parse error code: ") RED_BOLD("%d"), tag(), 4);
+            return false;
+        }
+
+        if (!setTkmTarget(job, target)) {
+            LOG_ERR("%s " RED("eth_getWork parse error code: ") RED_BOLD("%d"), tag(), 5);
             return false;
         }
 

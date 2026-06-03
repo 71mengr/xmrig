@@ -76,7 +76,7 @@ public:
     inline const String &poolWallet() const             { return m_poolWallet; }
     inline const uint32_t *nonce() const                { return reinterpret_cast<const uint32_t*>(m_blob + nonceOffset()); }
     inline const uint8_t *blob() const                  { return m_blob; }
-    inline size_t nonceSize() const                     { return (algorithm().family() == Algorithm::KAWPOW) ?  8 :  4; }
+    inline size_t nonceSize() const                     { return m_nonceSize ? m_nonceSize : ((algorithm().family() == Algorithm::KAWPOW) ?  8 :  4); }
     inline size_t size() const                          { return m_size; }
     inline uint32_t *nonce()                            { return reinterpret_cast<uint32_t*>(m_blob + nonceOffset()); }
     inline uint32_t backend() const                     { return m_backend; }
@@ -96,6 +96,7 @@ public:
     inline void setHeight(uint64_t height)              { m_height = height; }
     inline void setIndex(uint8_t index)                 { m_index = index; }
     inline void setPoolWallet(const String &poolWallet) { m_poolWallet = poolWallet; }
+    inline void setNonce(size_t offset, size_t size)     { m_nonceOffset = offset; m_nonceSize = size; }
 
 #   ifdef XMRIG_PROXY_PROJECT
     inline char *rawBlob()                              { return m_rawBlob; }
@@ -150,7 +151,9 @@ private:
     Algorithm m_algorithm;
     bool m_nicehash     = false;
     Buffer m_seed;
-    size_t m_size       = 0;
+    size_t m_size        = 0;
+    size_t m_nonceOffset = 0;
+    size_t m_nonceSize   = 0;
     String m_clientId;
     String m_extraNonce;
     String m_id;
