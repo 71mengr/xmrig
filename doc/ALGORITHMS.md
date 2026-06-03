@@ -3,7 +3,7 @@
 Algorithm can be defined in 3 ways:
 
 1. By pool, using algorithm negotiation, in this case no need specify algorithm on miner side.
-2. Per pool `coin` option, currently only usable values for this option is `monero` and `arqma`.
+2. Per pool `coin` option, currently usable values include `monero`, `arqma`, and `tkm`.
 3. Per pool `algo` option.
 
 Option `coin` useful for pools without [algorithm negotiation](https://xmrig.com/docs/extensions/algorithm-negotiation) support or daemon to allow automatically switch algorithm in next hard fork. If you use xmrig-proxy don't need specify algorithm on miner side.
@@ -17,7 +17,7 @@ Option `coin` useful for pools without [algorithm negotiation](https://xmrig.com
 | `cn-pico/tlo` | 256 KB | 5.5.0+ | CryptoNight-Pico (Talleo). |  |
 | `rx/sfx` | 2 MB | 5.4.0+ | RandomSFX (RandomX variant for Safex). |  |
 | `rx/arq` | 256 KB | 4.3.0+ | RandomARQ (RandomX variant for ArQmA). |  |
-| `rx/0` | 2 MB | 3.2.0+ | RandomX (Monero). |  |
+| `rx/0` | 2 MB | 3.2.0+ | RandomX (Monero, TKM). |  |
 | `argon2/chukwa` | 512 KB | 3.1.0+ | Argon2id (Chukwa). | CPU only |
 | `argon2/wrkz` | 256 KB | 3.1.0+ | Argon2id (WRKZ) | CPU only |
 | `rx/wow` | 1 MB | 3.0.0+ | RandomWOW (RandomX variant for Wownero). |  |

@@ -246,7 +246,7 @@ int64_t xmrig::Client::submit(const JobResult &result)
         params.AddMember("algo", StringRef(result.algorithm.name()), allocator);
     }
 
-    JsonRequest::create(doc, m_sequence, "submit", params);
+    JsonRequest::create(doc, m_sequence, isTkm() ? "eth_submitWork" : "submit", params);
 
 #   ifdef XMRIG_PROXY_PROJECT
     m_results[m_sequence] = SubmitResult(m_sequence, result.diff, result.actualDiff(), result.id, 0);
@@ -366,6 +366,12 @@ bool xmrig::Client::close()
     }
 
     return true;
+}
+
+
+bool xmrig::Client::isTkm() const
+{
+    return m_pool.coin() == Coin::TKM;
 }
 
 
@@ -632,6 +638,59 @@ bool xmrig::Client::parseLogin(const rapidjson::Value &result, int *code)
 }
 
 
+bool xmrig::Client::parseTkmLogin(const rapidjson::Value &result, int *code)
+{
+    if (result.IsBool() && !result.GetBool()) {
+        *code = 1;
+        return false;
+    }
+
+    setRpcId(m_user.data());
+    m_jobs = 0;
+
+    if (result.IsBool()) {
+        return true;
+    }
+
+    const rapidjson::Value &job = Json::getObject(result, "job");
+    const rapidjson::Value &params = job.IsObject() ? job : result;
+
+    return parseJob(params, code);
+}
+
+
+bool xmrig::Client::parseTkmGetWork(const rapidjson::Value &result)
+{
+    const rapidjson::Value &job = Json::getObject(result, "job");
+    const rapidjson::Value &params = job.IsObject() ? job : result;
+
+    int code = -1;
+    if (parseJob(params, &code)) {
+        m_listener->onJobReceived(this, m_job, params);
+        return true;
+    }
+
+    if (code != 2 || !result.IsBool()) {
+        LOG_ERR("%s " RED("eth_getWork parse error code: ") RED_BOLD("%d"), tag(), code);
+    }
+
+    return false;
+}
+
+
+void xmrig::Client::getTkmWork()
+{
+    using namespace rapidjson;
+
+    Document doc(kObjectType);
+    Value params(kArrayType);
+
+    JsonRequest::create(doc, m_sequence, "eth_getWork", params);
+
+    send(doc);
+}
+
+
 void xmrig::Client::login()
 {
     using namespace rapidjson;
@@ -639,6 +698,17 @@ void xmrig::Client::login()
 
     Document doc(kObjectType);
     auto &allocator = doc.GetAllocator();
+
+    if (isTkm()) {
+        Value params(kArrayType);
+        params.PushBack(m_user.toJSON(), allocator);
+        params.PushBack(m_password.toJSON(), allocator);
+
+        JsonRequest::create(doc, 1, "eth_submitLogin", params);
+
+        send(doc);
+        return;
+    }
 
     Value params(kObjectType);
     params.AddMember("login", m_user.toJSON(),     allocator);
@@ -805,7 +875,7 @@ void xmrig::Client::parseExtensions(const rapidjson::Value &result)
 
 void xmrig::Client::parseNotification(const char *method, const rapidjson::Value &params, const rapidjson::Value &)
 {
-    if (strcmp(method, "job") == 0) {
+    if (strcmp(method, isTkm() ? "eth_getWork" : "job") == 0) {
         int code = -1;
         if (parseJob(params, &code)) {
             m_listener->onJobReceived(this, m_job, params);
@@ -836,6 +906,38 @@ void xmrig::Client::parseResponse(int64_t id, const rapidjson::Value &result, co
             close();
         }
 
+        return;
+    }
+
+    if (isTkm()) {
+        if (id == 1) {
+            int code = -1;
+            if (!parseTkmLogin(result, &code)) {
+                if (!isQuiet()) {
+                    LOG_ERR("%s " RED("login error code: ") RED_BOLD("%d"), tag(), code);
+                }
+
+                close();
+                return;
+            }
+
+            m_failures = 0;
+            m_listener->onLoginSuccess(this);
+
+            if (m_job.isValid()) {
+                const rapidjson::Value &job = Json::getObject(result, "job");
+                m_listener->onJobReceived(this, m_job, job.IsObject() ? job : result);
+            }
+
+            getTkmWork();
+            return;
+        }
+
+        if (result.IsObject() && parseTkmGetWork(result)) {
+            return;
+        }
+
+        handleSubmitResponse(id);
         return;
     }
 

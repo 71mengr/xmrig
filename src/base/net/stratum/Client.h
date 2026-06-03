@@ -97,13 +97,17 @@ private:
     class Socks5;
     class Tls;
 
+    bool isTkm() const;
     bool parseJob(const rapidjson::Value &params, int *code);
+    bool parseTkmGetWork(const rapidjson::Value &result);
+    bool parseTkmLogin(const rapidjson::Value &result, int *code);
     bool send(BIO *bio);
     bool verifyAlgorithm(const Algorithm &algorithm, const char *algo) const;
     bool write(const uv_buf_t &buf);
     int resolve(const String &host);
     int64_t send(size_t size);
     void connect(const sockaddr *addr);
+    void getTkmWork();
     void handshake();
     void parse(char *line, size_t len);
     void parseExtensions(const rapidjson::Value &result);
