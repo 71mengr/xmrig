@@ -216,6 +216,30 @@ int64_t xmrig::Client::submit(const JobResult &result)
     Document doc(kObjectType);
     auto &allocator = doc.GetAllocator();
 
+    if (isTkm()) {
+        Value params(kArrayType);
+#       ifdef XMRIG_PROXY_PROJECT
+        const char *nonce64 = nonce;
+#       else
+        char nonce64[19] = { 0 };
+        snprintf(nonce64, sizeof(nonce64), "0x%016" PRIx64, result.nonce);
+#       endif
+
+        params.PushBack(StringRef(nonce64), allocator);
+        params.PushBack(result.jobId.toJSON(), allocator);
+        params.PushBack(StringRef(data), allocator);
+
+        JsonRequest::create(doc, m_sequence, "eth_submitWork", params);
+
+#       ifdef XMRIG_PROXY_PROJECT
+        m_results[m_sequence] = SubmitResult(m_sequence, result.diff, result.actualDiff(), result.id, 0);
+#       else
+        m_results[m_sequence] = SubmitResult(m_sequence, result.diff, result.actualDiff(), 0, result.backend);
+#       endif
+
+        return send(doc);
+    }
+
     Value params(kObjectType);
     params.AddMember("id",     StringRef(m_rpcId.data()), allocator);
     params.AddMember("job_id", StringRef(result.jobId.data()), allocator);
@@ -246,7 +270,7 @@ int64_t xmrig::Client::submit(const JobResult &result)
         params.AddMember("algo", StringRef(result.algorithm.name()), allocator);
     }
 
-    JsonRequest::create(doc, m_sequence, isTkm() ? "eth_submitWork" : "submit", params);
+    JsonRequest::create(doc, m_sequence, "submit", params);
 
 #   ifdef XMRIG_PROXY_PROJECT
     m_results[m_sequence] = SubmitResult(m_sequence, result.diff, result.actualDiff(), result.id, 0);
@@ -661,6 +685,68 @@ bool xmrig::Client::parseTkmLogin(const rapidjson::Value &result, int *code)
 
 bool xmrig::Client::parseTkmGetWork(const rapidjson::Value &result)
 {
+    auto hex = [](const rapidjson::Value &value) -> const char * {
+        if (!value.IsString()) {
+            return nullptr;
+        }
+
+        const char *s = value.GetString();
+        return (value.GetStringLength() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) ? s + 2 : s;
+    };
+
+    if (result.IsArray()) {
+        auto arr = result.GetArray();
+        if (arr.Size() < 3) {
+            LOG_ERR("%s " RED("invalid eth_getWork response: result array has wrong size"), tag());
+            return false;
+        }
+
+        const char *blobData = hex(arr[0]);
+        const char *seedHash = hex(arr[1]);
+        const char *target   = hex(arr[2]);
+
+        if (!blobData || !seedHash || !target) {
+            LOG_ERR("%s " RED("invalid eth_getWork response: result array must contain strings"), tag());
+            return false;
+        }
+
+        Job job(has<EXT_NICEHASH>(), m_pool.algorithm(), m_rpcId);
+        job.setClientId(m_rpcId);
+        job.setId(arr[0].GetString());
+
+        if (!job.algorithm().isValid() && m_pool.coin().isValid()) {
+            job.setAlgorithm(m_pool.coin().algorithm());
+        }
+
+        if (!verifyAlgorithm(job.algorithm(), nullptr) || !job.setBlob(blobData) || !job.setTarget(target)) {
+            LOG_ERR("%s " RED("eth_getWork parse error code: ") RED_BOLD("%d"), tag(), 4);
+            return false;
+        }
+
+        if (job.algorithm().family() == Algorithm::RANDOM_X && !job.setSeedHash(seedHash)) {
+            LOG_ERR("%s " RED("eth_getWork parse error code: ") RED_BOLD("%d"), tag(), 7);
+            return false;
+        }
+
+        if (m_job != job) {
+            m_jobs++;
+            m_job = std::move(job);
+            m_listener->onJobReceived(this, m_job, result);
+            return true;
+        }
+
+        if (m_jobs == 0) {
+            return false;
+        }
+
+        if (!isQuiet()) {
+            LOG_WARN("%s " YELLOW("duplicate job received, reconnect"), tag());
+        }
+
+        close();
+        return false;
+    }
+
     const rapidjson::Value &job = Json::getObject(result, "job");
     const rapidjson::Value &params = job.IsObject() ? job : result;
 
@@ -933,7 +1019,7 @@ void xmrig::Client::parseResponse(int64_t id, const rapidjson::Value &result, co
             return;
         }
 
-        if (result.IsObject() && parseTkmGetWork(result)) {
+        if ((result.IsObject() || result.IsArray()) && parseTkmGetWork(result)) {
             return;
         }
 
