@@ -279,12 +279,22 @@ int64_t xmrig::Client::submit(const JobResult &result)
         const char *nonce64 = nonce;
 #       else
         char nonce64[19] = { 0 };
-        snprintf(nonce64, sizeof(nonce64), "0x%016" PRIx64, result.nonce);
+        char seedHash[67] = { 0 };
+        nonce64[0] = '0';
+        nonce64[1] = 'x';
+        Cvt::toHex(nonce64 + 2, sizeof(nonce64) - 2, reinterpret_cast<const uint8_t *>(&result.nonce), sizeof(result.nonce));
+        Cvt::toHex(seedHash + 2, 65, result.seedHash(), 32);
+        seedHash[0] = '0';
+        seedHash[1] = 'x';
 #       endif
 
         params.PushBack(StringRef(nonce64), allocator);
         params.PushBack(result.jobId.toJSON(), allocator);
+#       ifdef XMRIG_PROXY_PROJECT
         params.PushBack(StringRef(data), allocator);
+#       else
+        params.PushBack(StringRef(result.algorithm.family() == Algorithm::RANDOM_X ? seedHash : data), allocator);
+#       endif
 
         JsonRequest::create(doc, m_sequence, "eth_submitWork", params);
 

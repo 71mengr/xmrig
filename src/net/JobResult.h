@@ -64,6 +64,10 @@ public:
             memcpy(m_mixHash, mix_hash, sizeof(m_mixHash));
         }
 
+        if (!job.seed().empty()) {
+            memcpy(m_seedHash, job.seed().data(), sizeof(m_seedHash));
+        }
+
         if (extra_data) {
             if (algorithm == Algorithm::RX_V2) {
                 m_hasCommitment = true;
@@ -92,6 +96,7 @@ public:
     inline uint8_t *result()                 { return m_result; }
     inline const uint8_t *headerHash() const { return m_headerHash; }
     inline const uint8_t *mixHash() const    { return m_mixHash; }
+    inline const uint8_t *seedHash() const   { return m_seedHash; }
 
     inline const uint8_t *minerSignature() const { return m_hasMinerSignature ? m_extraData : nullptr; }
     inline const uint8_t *commitment() const { return m_hasCommitment ? m_extraData : nullptr; }
@@ -108,6 +113,7 @@ private:
     uint8_t m_result[32]     = { 0 };
     uint8_t m_headerHash[32] = { 0 };
     uint8_t m_mixHash[32]    = { 0 };
+    uint8_t m_seedHash[32]   = { 0 };
 
     uint8_t m_extraData[RANDOMX_HASH_SIZE * 2] = { 0 };
 
